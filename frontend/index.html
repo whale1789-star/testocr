@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMR 讀卡系統</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; text-align: center; }
+        canvas { border: 1px solid #ccc; max-width: 100%; margin-bottom: 20px; }
+        video { width: 100%; max-width: 400px; border: 2px solid #333; margin-bottom: 20px; }
+        button, input { margin: 10px; padding: 10px; font-size: 16px; }
+    </style>
+</head>
+<body>
+
+    <h2>1. 答案卡預覽</h2>
+    <canvas id="answerCard" width="600" height="800"></canvas>
+    <br>
+    
+    <h2>2. 拍照讀卡</h2>
+    <!-- 手機拍照/上傳按鈕 -->
+    <input type="file" accept="image/*" capture="environment" id="fileUpload">
+    
+    <script>
+    // --- 繪製答案卡 ---
+    const canvas = document.getElementById('answerCard');
+    const ctx = canvas.getContext('2d');
+
+    function drawMarkers() {
+        ctx.fillStyle = 'black';
+        const size = 30;
+        ctx.fillRect(20, 20, size, size); // 左上
+        ctx.fillRect(550, 20, size, size); // 右上
+        ctx.fillRect(20, 750, size, size); // 左下
+        ctx.fillRect(550, 750, size, size); // 右下
+    }
+
+    function drawQuestions() {
+        ctx.strokeStyle = 'black';
+        ctx.beginPath();
+        for(let i=0; i<10; i++) { 
+            for(let j=0; j<4; j++) { 
+                ctx.arc(100 + j*40, 100 + i*40, 10, 0, Math.PI * 2);
+            }
+        }
+        ctx.stroke();
+    }
+
+    drawMarkers();
+    drawQuestions();
+
+    // --- 處理圖片上傳與後端連線 ---
+    document.getElementById('fileUpload').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        // ⚠️ 請確保這裡是 https 開頭的 Render 網址！
+        fetch("https://你的-render-網址.onrender.com/api/scan", {
+            method: "POST",
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => alert(`判斷成功！分數: ${data.score}`))
+        .catch(err => {
+            console.error(err);
+            alert("連線發生錯誤，請檢查後端是否正常運作。");
+        });
+    });
+    </script>
+</body>
+</html>
