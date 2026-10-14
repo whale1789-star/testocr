@@ -6,26 +6,27 @@
     <title>OMR 讀卡系統</title>
     <style>
         body { font-family: sans-serif; padding: 20px; text-align: center; }
-        canvas { border: 1px solid #ccc; max-width: 100%; margin-bottom: 20px; }
+        canvas { border: 1px solid #ccc; max-width: 100%; margin-bottom: 20px; cursor: pointer; }
         button, input { margin: 10px; padding: 10px; font-size: 16px; }
         #status { margin-top: 10px; color: blue; font-weight: bold; }
+        .error { color: red !important; }
     </style>
 </head>
 <body>
 
-    <h2>1. 答案卡預覽2</h2>
+    <h2>1. 答案卡預覽 (可直接點擊圓圈作答)</h2>
     <canvas id="answerCard" width="600" height="800"></canvas>
     <br>
     
     <h2>2. 拍照讀卡</h2>
-    <!-- 手機拍照/上傳按鈕 -->
     <input type="file" accept="image/*" capture="environment" id="fileUpload">
     <div id="status"></div>
     
     <script>
-    // --- 繪製答案卡 ---
+    // --- 繪製可互動的答案卡 ---
     const canvas = document.getElementById('answerCard');
     const ctx = canvas.getContext('2d');
+    const bubbles = []; // 儲存泡泡座標與狀態
 
     function drawMarkers() {
         ctx.fillStyle = 'black';
@@ -37,45 +38,79 @@
     }
 
     function drawQuestions() {
-    ctx.strokeStyle = 'black';
-    for(let i=0; i<10; i++) { 
-        for(let j=0; j<4; j++) { 
-            ctx.beginPath(); // 關鍵在這裡：每次畫新圓圈前，都要「提筆」重新開始
-            ctx.arc(100 + j*40, 100 + i*40, 10, 0, Math.PI * 2);
-            ctx.stroke();    // 畫下這個圓
+        ctx.strokeStyle = 'black';
+        bubbles.length = 0; // 初始化
+        for(let i=0; i<10; i++) { 
+            for(let j=0; j<4; j++) { 
+                let x = 100 + j*40;
+                let y = 100 + i*40;
+                ctx.beginPath();
+                ctx.arc(x, y, 10, 0, Math.PI * 2);
+                ctx.stroke();
+                // 將每個圓圈的資訊存起來
+                bubbles.push({x: x, y: y, radius: 10, filled: false, row: i, col: j});
+            }
         }
     }
-}
 
     drawMarkers();
     drawQuestions();
+
+    // 監聽點擊事件，讓圓圈可以切換塗黑/取消塗黑
+    canvas.addEventListener('click', function(e) {
+        const rect = canvas.getBoundingClientRect();
+        // 計算實際點擊在 canvas 上的座標，避免因 CSS 縮放導致失準
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const mouseX = (e.clientX - rect.left) * scaleX;
+        const mouseY = (e.clientY - rect.top) * scaleY;
+
+        bubbles.forEach(b => {
+            const dx = mouseX - b.x;
+            const dy = mouseY - b.y;
+            // 判斷點擊是否在圓內 (畢氏定理)
+            if (dx*dx + dy*dy <= b.radius * b.radius) {
+                b.filled = !b.filled; // 切換狀態
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+                ctx.fillStyle = b.filled ? 'black' : 'white';
+                ctx.fill();
+                ctx.stroke();
+            }
+        });
+    });
 
     // --- 處理圖片上傳與後端連線 ---
     document.getElementById('fileUpload').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
 
-        // 給使用者的即時回饋
         const statusDiv = document.getElementById('status');
-        statusDiv.innerText = "照片已上傳！伺服器喚醒與辨識中，請稍候 (約需 5~50 秒)...";
+        statusDiv.className = '';
+        statusDiv.innerText = "照片已上傳！伺服器辨識中，請稍候...";
 
         const formData = new FormData();
         formData.append("file", file);
 
-        // 使用你專屬的 Render 網址
         fetch("https://testocr-thel.onrender.com/api/scan", {
             method: "POST",
             body: formData
         })
         .then(res => res.json())
         .then(data => {
-            statusDiv.innerText = `判斷成功！分數: ${data.score}`;
-            alert(`判斷成功！分數: ${data.score}`);
+            if(data.status === "success") {
+                statusDiv.innerText = `判斷成功！最終分數: ${data.score} 分`;
+                alert(`判斷成功！最終分數: ${data.score} 分`);
+            } else {
+                statusDiv.className = 'error';
+                statusDiv.innerText = `辨識失敗：${data.message}`;
+                alert(`辨識失敗：\n${data.message}`);
+            }
         })
         .catch(err => {
             console.error(err);
+            statusDiv.className = 'error';
             statusDiv.innerText = "連線發生錯誤，請檢查後端狀態。";
-            alert("連線發生錯誤，請檢查後端是否正常運作。");
         });
     });
     </script>
