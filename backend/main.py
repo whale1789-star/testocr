@@ -5,6 +5,7 @@ import numpy as np
 
 app = FastAPI()
 
+# 解決跨來源資源共用 (CORS) 問題
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -13,19 +14,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 自動喚醒用的根目錄
 @app.get("/")
 async def wake_up():
     return {"message": "Server is awake!"}
 
+# 接收圖片並進行辨識的 API
 @app.post("/api/scan")
 async def scan_card(file: UploadFile = File(...)):
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
     score = process_omr(img)
     return {"status": "success", "score": score}
 
-# --- 以下是取代 scipy/imutils 的純 Numpy 視角校正演算法 ---
+# --- 輕量化視角校正 (不使用 scipy) ---
 def order_points(pts):
     rect = np.zeros((4, 2), dtype="float32")
     s = pts.sum(axis=1)
@@ -75,13 +79,14 @@ def process_omr(image):
     if docCnt is None:
         return "無法辨識邊框"
 
-    # 2. 視角校正 (使用自建函式)
+    # 2. 視角校正
     pts = docCnt.reshape(4, 2)
     paper = get_four_point_transform(image, pts)
     warped = get_four_point_transform(gray, pts)
 
-    # 3. 圖片二值化
+    # 3. 圖片二值化 (前置準備完成)
     thresh = cv2.threshold(warped, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
 
-    score = 85 # 測試用預設分數
+    # 目前回傳測試用分數
+    score = 85 
     return score
