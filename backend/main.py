@@ -1,63 +1,19 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-import cv2
-import numpy as np
+# ... (上半部的 FastAPI 設定與 get_four_point_transform 保留) ...
 
-app = FastAPI()
+# --- 新增：輪廓排序輔助函式 ---
+def sort_contours(cnts, method="top-to-bottom"):
+    reverse = False
+    i = 0
+    if method == "right-to-left" or method == "bottom-to-top":
+        reverse = True
+    if method == "top-to-bottom" or method == "bottom-to-top":
+        i = 1
+    boundingBoxes = [cv2.boundingRect(c) for c in cnts]
+    (cnts, boundingBoxes) = zip(*sorted(zip(cnts, boundingBoxes),
+        key=lambda b:b[1][i], reverse=reverse))
+    return (cnts, boundingBoxes)
 
-# 解決跨來源資源共用 (CORS) 問題
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# 自動喚醒用的根目錄
-@app.get("/")
-async def wake_up():
-    return {"message": "Server is awake!"}
-
-# 接收圖片並進行辨識的 API
-@app.post("/api/scan")
-async def scan_card(file: UploadFile = File(...)):
-    contents = await file.read()
-    nparr = np.frombuffer(contents, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    
-    score = process_omr(img)
-    return {"status": "success", "score": score}
-
-# --- 輕量化視角校正 (不使用 scipy) ---
-def order_points(pts):
-    rect = np.zeros((4, 2), dtype="float32")
-    s = pts.sum(axis=1)
-    rect[0] = pts[np.argmin(s)]
-    rect[2] = pts[np.argmax(s)]
-    diff = np.diff(pts, axis=1)
-    rect[1] = pts[np.argmin(diff)]
-    rect[3] = pts[np.argmax(diff)]
-    return rect
-
-def get_four_point_transform(image, pts):
-    rect = order_points(pts)
-    (tl, tr, br, bl) = rect
-    widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
-    widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
-    maxWidth = max(int(widthA), int(widthB))
-    heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
-    heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
-    maxHeight = max(int(heightA), int(heightB))
-    dst = np.array([
-        [0, 0],
-        [maxWidth - 1, 0],
-        [maxWidth - 1, maxHeight - 1],
-        [0, maxHeight - 1]], dtype="float32")
-    M = cv2.getPerspectiveTransform(rect, dst)
-    return cv2.warpPerspective(image, M, (maxWidth, maxHeight))
-
-# --- OpenCV 核心邏輯 ---
+# --- OpenCV 核心邏輯 (完整版) ---
 def process_omr(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -77,16 +33,61 @@ def process_omr(image):
                 break
 
     if docCnt is None:
-        return "無法辨識邊框"
+        return "錯誤：無法辨識答案卡邊框"
 
     # 2. 視角校正
     pts = docCnt.reshape(4, 2)
-    paper = get_four_point_transform(image, pts)
     warped = get_four_point_transform(gray, pts)
 
-    # 3. 圖片二值化 (前置準備完成)
+    # 3. 圖片二值化 (塗黑的地方變白，背景變黑)
     thresh = cv2.threshold(warped, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
 
-    # 目前回傳測試用分數
-    score = 85 
+    # 4. 尋找所有的圓形泡泡
+    cnts, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    questionCnts = []
+
+    for c in cnts:
+        (x, y, w, h) = cv2.boundingRect(c)
+        ar = w / float(h)
+        # 根據長寬比過濾出圓形的泡泡 (寬高大於 15px，比例接近 1:1)
+        if w >= 15 and h >= 15 and ar >= 0.7 and ar <= 1.3:
+            questionCnts.append(c)
+
+    # 檢查是否剛好抓到 40 個選項 (10題 * 4選項)
+    if len(questionCnts) != 40:
+        return f"辨識失敗：找到 {len(questionCnts)} 個泡泡，格式不符 (應為 40 個)。請確保拍攝清晰無反光。"
+
+    # 5. 由上到下排序泡泡 (將題目排序為 1~10 題)
+    questionCnts, _ = sort_contours(questionCnts, method="top-to-bottom")
+
+    # 6. 設定標準答案 (0=A, 1=B, 2=C, 3=D)
+    # 這裡設定第 1~10 題的正確答案全部都是 A (索引值 0)
+    ANSWER_KEY = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0}
+    correct = 0
+
+    # 7. 逐題批改 (每次取 4 個泡泡為一題)
+    for (q, i) in enumerate(np.arange(0, len(questionCnts), 4)):
+        # 取出這一題的 4 個選項，並由左到右排序 (A, B, C, D)
+        cnts = questionCnts[i:i + 4]
+        cnts, _ = sort_contours(cnts, method="left-to-right")
+        
+        bubbled = None
+
+        # 檢查這 4 個選項，哪一個塗得最黑 (白色像素最多)
+        for (j, c) in enumerate(cnts):
+            mask = np.zeros(thresh.shape, dtype="uint8")
+            cv2.drawContours(mask, [c], -1, 255, -1)
+            
+            mask = cv2.bitwise_and(thresh, thresh, mask=mask)
+            total = cv2.countNonZero(mask)
+
+            if bubbled is None or total > bubbled[0]:
+                bubbled = (total, j)
+
+        # 比對這題最黑的選項與標準答案是否一致
+        if ANSWER_KEY[q] == bubbled[1]:
+            correct += 1
+
+    # 8. 計算最終分數 (一題 10 分)
+    score = int((correct / 10.0) * 100)
     return score
