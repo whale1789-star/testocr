@@ -37,15 +37,15 @@
     }
 
     function drawQuestions() {
-        ctx.strokeStyle = 'black';
-        ctx.beginPath();
-        for(let i=0; i<10; i++) { 
-            for(let j=0; j<4; j++) { 
-                ctx.arc(100 + j*40, 100 + i*40, 10, 0, Math.PI * 2);
-            }
+    ctx.strokeStyle = 'black';
+    for(let i=0; i<10; i++) { 
+        for(let j=0; j<4; j++) { 
+            ctx.beginPath(); // 關鍵在這裡：每次畫新圓圈前，都要「提筆」重新開始
+            ctx.arc(100 + j*40, 100 + i*40, 10, 0, Math.PI * 2);
+            ctx.stroke();    // 畫下這個圓
         }
-        ctx.stroke();
     }
+}
 
     drawMarkers();
     drawQuestions();
