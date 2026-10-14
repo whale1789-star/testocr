@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OMR 讀卡系統</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; text-align: center; }
-        canvas { border: 1px solid #ccc; max-width: 100%; margin-bottom: 20px; cursor: pointer; }
+        body { font-family: sans-serif; padding: 20px; text-align: center; background-color: #f5f5f5; }
+        /* 加上白色背景確保螢幕截圖或翻拍時不會變透明黑底 */
+        canvas { border: 1px solid #ccc; max-width: 100%; margin-bottom: 20px; cursor: pointer; background-color: white; }
         button, input { margin: 10px; padding: 10px; font-size: 16px; }
         #status { margin-top: 10px; color: blue; font-weight: bold; }
         .error { color: red !important; }
@@ -26,7 +27,11 @@
     // --- 繪製可互動的答案卡 ---
     const canvas = document.getElementById('answerCard');
     const ctx = canvas.getContext('2d');
-    const bubbles = []; // 儲存泡泡座標與狀態
+    const bubbles = []; 
+
+    // 1. 先把整張畫布塗成純白色 (避免透明背景在某些裝置上變黑色)
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     function drawMarkers() {
         ctx.fillStyle = 'black';
@@ -38,16 +43,18 @@
     }
 
     function drawQuestions() {
-        ctx.strokeStyle = 'black';
-        bubbles.length = 0; // 初始化
+        ctx.lineWidth = 2; // 加粗圓圈的外框，讓 OpenCV 更好抓
+        bubbles.length = 0; 
         for(let i=0; i<10; i++) { 
             for(let j=0; j<4; j++) { 
                 let x = 100 + j*40;
                 let y = 100 + i*40;
                 ctx.beginPath();
                 ctx.arc(x, y, 10, 0, Math.PI * 2);
+                ctx.fillStyle = 'white'; // 確保圓圈內部是實心的白色
+                ctx.fill();
+                ctx.strokeStyle = 'black';
                 ctx.stroke();
-                // 將每個圓圈的資訊存起來
                 bubbles.push({x: x, y: y, radius: 10, filled: false, row: i, col: j});
             }
         }
@@ -59,7 +66,6 @@
     // 監聽點擊事件，讓圓圈可以切換塗黑/取消塗黑
     canvas.addEventListener('click', function(e) {
         const rect = canvas.getBoundingClientRect();
-        // 計算實際點擊在 canvas 上的座標，避免因 CSS 縮放導致失準
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
         const mouseX = (e.clientX - rect.left) * scaleX;
@@ -68,13 +74,14 @@
         bubbles.forEach(b => {
             const dx = mouseX - b.x;
             const dy = mouseY - b.y;
-            // 判斷點擊是否在圓內 (畢氏定理)
             if (dx*dx + dy*dy <= b.radius * b.radius) {
-                b.filled = !b.filled; // 切換狀態
+                b.filled = !b.filled;
                 ctx.beginPath();
                 ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
                 ctx.fillStyle = b.filled ? 'black' : 'white';
                 ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = 'black';
                 ctx.stroke();
             }
         });
@@ -87,11 +94,12 @@
 
         const statusDiv = document.getElementById('status');
         statusDiv.className = '';
-        statusDiv.innerText = "照片已上傳！伺服器辨識中，請稍候...";
+        statusDiv.innerText = "照片已上傳！伺服器辨識中，請稍候 (約需 5~50 秒)...";
 
         const formData = new FormData();
         formData.append("file", file);
 
+        // 使用你專屬的 Render 網址
         fetch("https://testocr-thel.onrender.com/api/scan", {
             method: "POST",
             body: formData
@@ -111,6 +119,7 @@
             console.error(err);
             statusDiv.className = 'error';
             statusDiv.innerText = "連線發生錯誤，請檢查後端狀態。";
+            alert("連線發生錯誤，請檢查後端是否正常運作。");
         });
     });
     </script>
