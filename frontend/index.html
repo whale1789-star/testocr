@@ -7,19 +7,20 @@
     <style>
         body { font-family: sans-serif; padding: 20px; text-align: center; }
         canvas { border: 1px solid #ccc; max-width: 100%; margin-bottom: 20px; }
-        video { width: 100%; max-width: 400px; border: 2px solid #333; margin-bottom: 20px; }
         button, input { margin: 10px; padding: 10px; font-size: 16px; }
+        #status { margin-top: 10px; color: blue; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2>1. 答案卡預覽</h2>
+    <h2>1. 答案卡預覽2</h2>
     <canvas id="answerCard" width="600" height="800"></canvas>
     <br>
     
     <h2>2. 拍照讀卡</h2>
     <!-- 手機拍照/上傳按鈕 -->
     <input type="file" accept="image/*" capture="environment" id="fileUpload">
+    <div id="status"></div>
     
     <script>
     // --- 繪製答案卡 ---
@@ -54,18 +55,26 @@
         const file = e.target.files[0];
         if (!file) return;
 
+        // 給使用者的即時回饋
+        const statusDiv = document.getElementById('status');
+        statusDiv.innerText = "照片已上傳！伺服器喚醒與辨識中，請稍候 (約需 5~50 秒)...";
+
         const formData = new FormData();
         formData.append("file", file);
 
-        // ⚠️ 請確保這裡是 https 開頭的 Render 網址！
+        // 使用你專屬的 Render 網址
         fetch("https://testocr-thel.onrender.com/api/scan", {
             method: "POST",
             body: formData
         })
         .then(res => res.json())
-        .then(data => alert(`判斷成功！分數: ${data.score}`))
+        .then(data => {
+            statusDiv.innerText = `判斷成功！分數: ${data.score}`;
+            alert(`判斷成功！分數: ${data.score}`);
+        })
         .catch(err => {
             console.error(err);
+            statusDiv.innerText = "連線發生錯誤，請檢查後端狀態。";
             alert("連線發生錯誤，請檢查後端是否正常運作。");
         });
     });
